@@ -35,8 +35,6 @@ class SimpleGFTADsDataExtractor:
     
     def __init__(self, base_path: str):
         self.base_path = Path(base_path)
-        self.recommendations_path = self.base_path / "GSC_Recommendations"
-        self.reports_path = self.base_path / "GSC_Reports"
         self.output_path = self.base_path / "extracted_data"
         self.output_path.mkdir(exist_ok=True)
         
@@ -132,45 +130,42 @@ class SimpleGFTADsDataExtractor:
                 meeting_number=meeting_number,
                 document_type=doc_type,
                 page_number=i + 1,
-                confidence_score=np.random.uniform(0.7, 0.95),
-                raw_text=f"Sample text for {activity['what']}"
+                confidence_score=np.random.uniform(0.7, 0.95),                raw_text=f"Sample text for {activity['what']}"
             )
             activities.append(extracted_activity)
         
         return activities
     
     def process_all_documents(self) -> pd.DataFrame:
-        """Process all PDF documents in both folders (simulated)"""
+        """Process all PDF documents found in the base path (simulated)"""
         all_activities = []
         
-        # Process recommendations
-        if self.recommendations_path.exists():
-            for pdf_file in self.recommendations_path.glob("*.pdf"):
-                try:
-                    meeting_number, doc_type = self.extract_meeting_info(pdf_file.name)
-                    activities = self.create_sample_activities(meeting_number, doc_type)
-                    all_activities.extend(activities)
-                    logger.info(f"Processed: {pdf_file.name}")
-                except Exception as e:
-                    logger.error(f"Error processing {pdf_file}: {e}")
+        # Find all PDF files recursively
+        all_pdfs = list(self.base_path.glob("**/*.pdf"))
         
-        # Process reports
-        if self.reports_path.exists():
-            for pdf_file in self.reports_path.glob("*.pdf"):
-                try:
-                    meeting_number, doc_type = self.extract_meeting_info(pdf_file.name)
-                    activities = self.create_sample_activities(meeting_number, doc_type)
-                    all_activities.extend(activities)
-                    logger.info(f"Processed: {pdf_file.name}")
-                except Exception as e:
-                    logger.error(f"Error processing {pdf_file}: {e}")
+        # Categorize and process PDFs based on filename patterns
+        for pdf_file in all_pdfs:
+            try:
+                # Skip files in extracted_data folder
+                if "extracted_data" in str(pdf_file):
+                    continue
+                    
+                meeting_number, doc_type = self.extract_meeting_info(pdf_file.name)
+                activities = self.create_sample_activities(meeting_number, doc_type)
+                all_activities.extend(activities)
+                logger.info(f"Processed: {pdf_file.name}")
+            except Exception as e:
+                logger.error(f"Error processing {pdf_file}: {e}")
         
         # Convert to DataFrame
         df_data = [asdict(activity) for activity in all_activities]
         df = pd.DataFrame(df_data)
         
         # Add processing timestamp
-        df['processed_at'] = datetime.now()
+        if not df.empty:
+            df['processed_at'] = datetime.now()
+        
+        return df
         
         return df
     

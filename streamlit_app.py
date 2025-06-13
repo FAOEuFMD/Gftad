@@ -106,13 +106,151 @@ def extract_new_data():
     This will process all PDF files in your GSC_Recommendations and GSC_Reports folders
     and extract structured information including what, when, who, where, impact, and objectives.    </div>
     """, unsafe_allow_html=True)
+      # Path configuration with better folder selection
+    st.subheader("📁 Select Data Folder")
     
-    # Path configuration
-    base_path = st.text_input(
-        "Base Path to GF-TADs Data:",
-        value=r"c:\Users\user\EUFMD\Gftad",
-        help="Path to the folder containing GSC_Recommendations and GSC_Reports"
+    # Method selection
+    path_method = st.radio(
+        "Choose how to specify the folder:",
+        ["Browse Common Locations", "Enter Custom Path"],
+        horizontal=True
     )
+    
+    if path_method == "Browse Common Locations":
+        # Common folder shortcuts
+        common_paths = {
+            "Current Project Folder": str(Path.cwd()),
+            "Desktop": str(Path.home() / "Desktop"),
+            "Documents": str(Path.home() / "Documents"),
+            "Downloads": str(Path.home() / "Downloads"),
+            "User Home": str(Path.home()),
+        }
+        
+        # Add current project folder and any parent directories that might contain data
+        project_path = Path.cwd()
+        if project_path.name == "Gftad":
+            common_paths["Current Project (Gftad)"] = str(project_path)
+        
+        # Let user select from common locations
+        selected_location = st.selectbox(
+            "Select a starting location:",
+            list(common_paths.keys()),
+            index=0 if "Current Project (Gftad)" in common_paths else 0
+        )
+        
+        base_start = Path(common_paths[selected_location])
+        
+        # Show current folder contents for navigation
+        if base_start.exists():
+            st.write(f"📂 Current location: `{base_start}`")
+            
+            # List subfolders
+            try:
+                subfolders = [item for item in base_start.iterdir() if item.is_dir()]
+                if subfolders:
+                    folder_names = ["📁 " + folder.name for folder in subfolders]
+                    selected_subfolder = st.selectbox(
+                        "Or navigate to a subfolder:",
+                        ["(Stay in current folder)"] + folder_names,
+                        key="subfolder_select"
+                    )
+                    
+                    if selected_subfolder != "(Stay in current folder)":
+                        # Remove the folder emoji and get the actual folder
+                        folder_name = selected_subfolder.replace("📁 ", "")
+                        base_path = str(base_start / folder_name)
+                    else:
+                        base_path = str(base_start)
+                else:
+                    base_path = str(base_start)
+                    st.info("📝 No subfolders found in this location")
+                    
+            except PermissionError:
+                st.error("❌ Permission denied accessing this folder")
+                base_path = str(base_start)
+        else:
+            st.error("❌ Selected location does not exist")
+            base_path = str(Path.cwd())
+    
+    else:
+        # Manual path entry with helpful hints
+        st.markdown("💡 **Tip**: Copy and paste the full folder path from File Explorer")
+        base_path = st.text_input(
+            "Enter the full path to your GF-TADs data folder:",
+            value=r"c:\Users\user\EUFMD\Gftad",
+            help="Example: C:\\Users\\YourName\\Documents\\GF-TADs\\Data"
+        )
+        
+        # Show a button to copy current working directory
+        if st.button("📋 Use Current Working Directory"):
+            base_path = str(Path.cwd())
+            st.success(f"✅ Set path to: {base_path}")
+      # Show the selected path and validate it
+    st.markdown(f"**Selected path:** `{base_path}`")
+    
+    # Validate the selected path
+    path_obj = Path(base_path)
+    if path_obj.exists():
+        st.success("✅ Path exists")
+        
+        # Find all PDF files in the selected path and subfolders
+        all_pdfs = list(path_obj.glob("**/*.pdf"))
+        
+        if all_pdfs:
+            # Categorize PDFs based on filename patterns
+            recommendations_pdfs = []
+            reports_pdfs = []
+            other_pdfs = []
+            
+            for pdf in all_pdfs:
+                filename_lower = pdf.name.lower()
+                if "recommen" in filename_lower:
+                    recommendations_pdfs.append(pdf)
+                elif "committee meeting" in filename_lower or "minute" in filename_lower:
+                    reports_pdfs.append(pdf)
+                else:
+                    other_pdfs.append(pdf)
+            
+            # Display categorized results
+            st.markdown("**📄 PDF File Analysis:**")
+            
+            col1, col2, col3 = st.columns(3)
+            
+            with col1:
+                st.markdown(f"**📋 Recommendations**: {len(recommendations_pdfs)} files")
+                if recommendations_pdfs:
+                    with st.expander("View Recommendation files"):
+                        for pdf in recommendations_pdfs:
+                            relative_path = pdf.relative_to(path_obj)
+                            st.write(f"📋 {relative_path}")
+            
+            with col2:
+                st.markdown(f"**📊 Reports/Minutes**: {len(reports_pdfs)} files")
+                if reports_pdfs:
+                    with st.expander("View Report/Minute files"):
+                        for pdf in reports_pdfs:
+                            relative_path = pdf.relative_to(path_obj)
+                            st.write(f"📊 {relative_path}")
+            
+            with col3:
+                st.markdown(f"**❓ Other PDFs**: {len(other_pdfs)} files")
+                if other_pdfs:
+                    with st.expander("View Other PDF files"):
+                        for pdf in other_pdfs:
+                            relative_path = pdf.relative_to(path_obj)
+                            st.write(f"❓ {relative_path}")
+              # Summary
+            total_processable = len(recommendations_pdfs) + len(reports_pdfs)
+            if total_processable > 0:
+                st.success(f"✅ Found {total_processable} processable PDF files ({len(recommendations_pdfs)} recommendations + {len(reports_pdfs)} reports)")
+                if other_pdfs:
+                    st.info(f"ℹ️ {len(other_pdfs)} other PDF files found but won't be processed (unclear document type)")
+            else:
+                st.warning("⚠️ No recognizable GF-TADs documents found. Looking for files with 'recommen' or 'committee meeting' in the filename.")
+        else:
+            st.warning("⚠️ No PDF files found in the selected path.")
+    else:
+        st.error("❌ Path does not exist. Please check the path and try again.")
     
     if st.button("🚀 Start Data Extraction", type="primary"):
         if not EXTRACTOR_AVAILABLE:
@@ -123,12 +261,24 @@ def extract_new_data():
             st.error("❌ Path does not exist. Please check the path.")
             return
         
-        # Check for required folders
-        recommendations_path = Path(base_path) / "GSC_Recommendations"
-        reports_path = Path(base_path) / "GSC_Reports"
+        # Find PDFs anywhere in the folder structure
+        all_pdfs = list(Path(base_path).glob("**/*.pdf"))
         
-        if not recommendations_path.exists() or not reports_path.exists():
-            st.error("❌ GSC_Recommendations or GSC_Reports folders not found in the specified path.")
+        # Categorize PDFs based on filename patterns
+        recommendations_pdfs = []
+        reports_pdfs = []
+        
+        for pdf in all_pdfs:
+            filename_lower = pdf.name.lower()
+            if "recommen" in filename_lower:
+                recommendations_pdfs.append(pdf)
+            elif "committee meeting" in filename_lower or "minute" in filename_lower:
+                reports_pdfs.append(pdf)
+        
+        total_processable = len(recommendations_pdfs) + len(reports_pdfs)
+        
+        if total_processable == 0:
+            st.error("❌ No processable GF-TADs documents found. Please ensure you have PDF files with 'recommen' or 'committee meeting' in their names.")
             return
         
         # Start extraction
@@ -148,6 +298,11 @@ def extract_new_data():
                 st.info(f"📄 Total activities extracted: {len(df)}")
                 st.info(f"💾 Data saved to: {output_file}")
                 
+                # Show breakdown by document type
+                doc_type_counts = df['document_type'].value_counts()
+                if len(doc_type_counts) > 1:
+                    st.info(f"📊 Breakdown: {dict(doc_type_counts)}")
+                
                 # Store in session state for immediate analysis
                 st.session_state['extracted_df'] = df
                 st.session_state['data_source'] = str(output_file)
@@ -156,9 +311,21 @@ def extract_new_data():
                 st.subheader("📊 Data Preview")
                 st.dataframe(df.head(10))
                 
-                # Proceed to analysis
-                if st.button("📈 Analyze Extracted Data"):
-                    analyze_data(df)
+                # Guide user to next step with enhanced instructions
+                st.markdown(f"""
+                <div class="highlight">
+                <strong>🎉 Extraction Complete!</strong><br>
+                Your data has been successfully extracted and saved. To analyze and visualize this data:
+                <ol>
+                <li>📂 Click on <strong>"Load Existing Data"</strong> in the sidebar</li>
+                <li>📎 Browse and select the Excel file:<br>
+                    <code>{output_file.name}</code></li>
+                <li>📊 The analysis will start automatically once the file is uploaded!</li>
+                </ol>
+                <br>
+                <strong>💡 Tip:</strong> The file is saved in your <code>extracted_data</code> folder.
+                </div>
+                """, unsafe_allow_html=True)
                     
             except Exception as e:
                 st.error(f"❌ Error during extraction: {str(e)}")
