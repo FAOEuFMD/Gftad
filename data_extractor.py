@@ -147,12 +147,14 @@ class GFTADsDataExtractor:
     
     def __init__(self, base_path: str):
         self.base_path = Path(base_path)
+        self.recommendations_path = self.base_path / "GSC_Recommendations"
+        self.reports_path = self.base_path / "GSC_Reports"
         self.output_path = self.base_path / "extracted_data"
         self.output_path.mkdir(exist_ok=True)
         
         # Initialize NLP models
         self.setup_nlp()
-        # Keywords for entity extraction
+          # Keywords for entity extraction
         self.setup_keywords()
         
     def setup_nlp(self):
@@ -469,19 +471,20 @@ class GFTADsDataExtractor:
         return activities
     
     def process_all_documents(self) -> pd.DataFrame:
-        """Process all PDF documents found in the base path and subfolders"""
+        """Process all PDF documents in both folders"""
         all_activities = []
         
-        # Find all PDF files recursively
-        all_pdfs = list(self.base_path.glob("**/*.pdf"))
-        
-        # Categorize PDFs based on filename patterns
-        for pdf_file in all_pdfs:
+        # Process recommendations
+        for pdf_file in self.recommendations_path.glob("*.pdf"):
             try:
-                # Skip files in extracted_data folder
-                if "extracted_data" in str(pdf_file):
-                    continue
-                    
+                activities = self.process_document(pdf_file)
+                all_activities.extend(activities)
+            except Exception as e:
+                logger.error(f"Error processing {pdf_file}: {e}")
+        
+        # Process reports
+        for pdf_file in self.reports_path.glob("*.pdf"):
+            try:
                 activities = self.process_document(pdf_file)
                 all_activities.extend(activities)
             except Exception as e:
@@ -492,8 +495,7 @@ class GFTADsDataExtractor:
         df = pd.DataFrame(df_data)
         
         # Add processing timestamp
-        if not df.empty:
-            df['processed_at'] = datetime.now()
+        df['processed_at'] = datetime.now()
         
         return df
     
