@@ -68,22 +68,27 @@ class SimpleGFTADsVisualizer:
         """Prepare data for visualization"""
         # Clean and process data
         self.df['meeting_number'] = pd.to_numeric(self.df['meeting_number'], errors='coerce')
-        
+
+        # Ensure all fields are string before concatenation
+        for col in ['what', 'when', 'who', 'where', 'impact']:
+            if col in self.df.columns:
+                self.df[col] = self.df[col].apply(lambda x: str(x) if not pd.isna(x) else '')
+
         # Create combined text fields for analysis
         self.df['all_text'] = (
-            self.df['what'].fillna('') + ' ' +
-            self.df['when'].fillna('') + ' ' +
-            self.df['who'].fillna('') + ' ' +
-            self.df['where'].fillna('') + ' ' +
-            self.df['impact'].fillna('')
+            self.df['what'].fillna('') + ' '
+            + self.df['when'].fillna('') + ' '
+            + self.df['who'].fillna('') + ' '
+            + self.df['where'].fillna('') + ' '
+            + self.df['impact'].fillna('')
         )
-        
+
         # Extract years from 'when' field
-        self.df['year'] = self.df['when'].str.extract(r'(\d{4})').astype(float)
-        
+        self.df['year'] = self.df['when'].astype(str).str.extract(r'(\d{4})').astype(float)
+
         # Process objectives (convert string representation of list to actual list)
         self.df['objectives_processed'] = self.df['objectives'].apply(self.process_objectives)
-        
+
         # Create activity categories
         self.df['activity_category'] = self.df['what'].apply(self.categorize_activity)
         
@@ -91,8 +96,8 @@ class SimpleGFTADsVisualizer:
         """Process objectives string into list"""
         if pd.isna(obj_str) or obj_str == '[]':
             return []
-        
         try:
+            obj_str = str(obj_str)
             # Try to evaluate as Python list
             if obj_str.startswith('[') and obj_str.endswith(']'):
                 return eval(obj_str)
@@ -100,15 +105,13 @@ class SimpleGFTADsVisualizer:
                 # Split by common delimiters
                 return [obj.strip() for obj in obj_str.split(';') if obj.strip()]
         except:
-            return [obj_str] if obj_str else []
+            return [str(obj_str)] if obj_str else []
     
     def categorize_activity(self, activity_text):
         """Categorize activities based on keywords"""
         if pd.isna(activity_text):
             return 'Unknown'
-        
-        activity_lower = activity_text.lower()
-        
+        activity_lower = str(activity_text).lower()
         categories = {
             'Capacity Building': ['develop', 'training', 'capacity', 'strengthen', 'enhance'],
             'Surveillance': ['monitor', 'surveillance', 'track', 'observe', 'watch'],
@@ -119,71 +122,82 @@ class SimpleGFTADsVisualizer:
             'Policy': ['policy', 'strategy', 'framework', 'guidelines'],
             'Communication': ['communicate', 'inform', 'share', 'disseminate']
         }
-        
         for category, keywords in categories.items():
             if any(keyword in activity_lower for keyword in keywords):
                 return category
-        
         return 'Other'
     
     def create_overview_dashboard(self):
         """Create comprehensive overview dashboard"""
+
         fig = make_subplots(
-            rows=3, cols=2,
+            rows=2, cols=3,
             subplot_titles=[
-                'Activities by Meeting Number',
-                'Document Types Distribution',
+                'Activities by Work Area',
+                'Where (Location) Distribution',
                 'Activity Categories',
                 'Confidence Score Distribution',
                 'Organizations Involvement',
                 'Temporal Distribution'
             ],
             specs=[
-                [{"type": "scatter"}, {"type": "pie"}],
-                [{"type": "bar"}, {"type": "histogram"}],
-                [{"type": "bar"}, {"type": "scatter"}]
+                [{"type": "bar"}, {"type": "pie"}, {"type": "bar"}],
+                [{"type": "histogram"}, {"type": "bar"}, {"type": "scatter"}]
             ]
         )
-        
-        # 1. Activities by Meeting Number
-        meeting_counts = self.df['meeting_number'].value_counts().sort_index()
-        fig.add_trace(
-            go.Scatter(
-                x=meeting_counts.index,
-                y=meeting_counts.values,
-                mode='lines+markers',
-                name='Activities per Meeting',
-                line=dict(color=self.colors['primary'], width=3)
-            ),
-            row=1, col=1
-        )
-        
-        # 2. Document Types Distribution
-        doc_types = self.df['document_type'].value_counts()
-        fig.add_trace(
-            go.Pie(
-                labels=doc_types.index,
-                values=doc_types.values,
-                name="Document Types",
-                marker_colors=[self.colors['primary'], self.colors['secondary']]
-            ),
-            row=1, col=2
-        )
-        
-        # 3. Activity Categories
+
+
+        # 1. Activities by Work Area (area_of_work) - Top left
+        if 'area_of_work' in self.df.columns:
+            area_expanded = self.df['area_of_work'].dropna().astype(str).str.split(';').explode().str.strip()
+            area_counts = area_expanded[area_expanded != ''].value_counts()
+            fig.add_trace(
+                go.Bar(
+                    x=area_counts.index,
+                    y=area_counts.values,
+                    name='Activities by Work Area',
+                    marker_color=self.colors['primary']
+                ),
+                row=1, col=1
+            )
+        else:
+            fig.add_trace(
+                go.Bar(x=[], y=[], name='Activities by Work Area'),
+                row=1, col=1
+            )
+
+        # 2. Where (Location) Distribution Pie Chart - Top center
+        if 'where' in self.df.columns:
+            where_expanded = self.df['where'].dropna().astype(str).str.split(';').explode().str.strip()
+            where_counts = where_expanded[where_expanded != ''].value_counts().head(15)
+            fig.add_trace(
+                go.Pie(
+                    labels=where_counts.index,
+                    values=where_counts.values,
+                    name="Where (Location)",
+                    marker_colors=px.colors.qualitative.Pastel
+                ),
+                row=1, col=2
+            )
+        else:
+            fig.add_trace(
+                go.Pie(labels=[], values=[], name="Where (Location)"),
+                row=1, col=2
+            )
+
+        # 3. Activity Categories - Top right
         categories = self.df['activity_category'].value_counts()
         fig.add_trace(
             go.Bar(
-                x=categories.values,
-                y=categories.index,
-                orientation='h',
+                x=categories.index,
+                y=categories.values,
                 name='Activity Categories',
                 marker_color=self.colors['success']
             ),
-            row=2, col=1
+            row=1, col=3
         )
-        
-        # 4. Confidence Score Distribution
+
+        # 4. Confidence Score Distribution - Bottom left
         fig.add_trace(
             go.Histogram(
                 x=self.df['confidence_score'],
@@ -191,14 +205,13 @@ class SimpleGFTADsVisualizer:
                 name='Confidence Scores',
                 marker_color=self.colors['info']
             ),
-            row=2, col=2
+            row=2, col=1
         )
-        
-        # 5. Organizations (top 10)
+
+        # 5. Organizations (top 10) - Bottom center
         all_orgs = []
         for orgs in self.df['who'].dropna():
             all_orgs.extend([org.strip() for org in str(orgs).split(';') if org.strip()])
-        
         org_counts = Counter(all_orgs).most_common(10)
         if org_counts:
             orgs, counts = zip(*org_counts)
@@ -210,10 +223,15 @@ class SimpleGFTADsVisualizer:
                     name='Top Organizations',
                     marker_color=self.colors['warning']
                 ),
-                row=3, col=1
+                row=2, col=2
             )
-        
-        # 6. Temporal Distribution (if year data available)
+        else:
+            fig.add_trace(
+                go.Bar(x=[], y=[], name='Top Organizations'),
+                row=2, col=2
+            )
+
+        # 6. Temporal Distribution (if year data available) - Bottom right
         year_data = self.df['year'].dropna()
         if not year_data.empty:
             year_counts = year_data.value_counts().sort_index()
@@ -225,9 +243,27 @@ class SimpleGFTADsVisualizer:
                     name='Activities by Year',
                     marker=dict(size=10, color=self.colors['dark'])
                 ),
-                row=3, col=2
+                row=2, col=3
             )
-        
+        else:
+            fig.add_trace(
+                go.Scatter(x=[], y=[], name='Activities by Year'),
+                row=2, col=3
+            )
+
+        # Add summary metrics at the top (including Number of Global Steering Committee meetings)
+        # This is for Streamlit, not Plotly, so add a helper method for Streamlit to call
+        # Fix: drop NaN and empty, convert to string, then count unique meeting numbers
+        meeting_numbers = self.df['meeting_number'].dropna().astype(str)
+        meeting_numbers = meeting_numbers[meeting_numbers != '' ]
+        num_unique_meetings = meeting_numbers.nunique()
+        self.overview_metrics = {
+            'Total Activities': len(self.df),
+            'Number of Global Steering Committee meetings': num_unique_meetings,
+            'Avg Confidence': round(self.df['confidence_score'].mean(), 2),
+            'Document Types': self.df['document_type'].nunique()
+        }
+
         # Update layout
         fig.update_layout(
             height=1200,
@@ -236,35 +272,41 @@ class SimpleGFTADsVisualizer:
             showlegend=False,
             template=self.plotly_theme
         )
-        
+
         return fig
     
     def create_activity_timeline(self):
-        """Create timeline visualization of activities"""
+        """Create timeline visualization: year (x), number of activities (y), colored by area_of_work"""
         # Filter data with valid years
-        timeline_data = self.df[self.df['year'].notna()]
-        
+        timeline_data = self.df[self.df['year'].notna()].copy()
         if timeline_data.empty:
             print("No temporal data available for timeline")
             return None
-        
-        fig = px.scatter(
-            timeline_data,
+
+        # Ensure area_of_work is string for grouping
+        if 'area_of_work' in timeline_data.columns:
+            timeline_data['area_of_work'] = timeline_data['area_of_work'].astype(str)
+        else:
+            timeline_data['area_of_work'] = 'Unknown'
+
+        # Group by year and area_of_work, count activities
+        grouped = timeline_data.groupby(['year', 'area_of_work']).size().reset_index(name='activity_count')
+
+        fig = px.bar(
+            grouped,
             x='year',
-            y='meeting_number',
-            size='confidence_score',
-            color='activity_category',
-            hover_data=['what', 'who', 'where'],
-            title='Activity Timeline: When and What',
+            y='activity_count',
+            color='area_of_work',
+            barmode='group',
+            title='Activities per Year by Area of Work',
+            labels={'year': 'Year', 'activity_count': 'Number of Activities', 'area_of_work': 'Area of Work'},
             template=self.plotly_theme
         )
-        
         fig.update_layout(
             xaxis_title="Year",
-            yaxis_title="Meeting Number",
+            yaxis_title="Number of Activities",
             height=600
         )
-        
         return fig
     
     def create_objectives_analysis(self):

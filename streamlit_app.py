@@ -8,6 +8,8 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
+
+import re
 import pandas as pd
 import numpy as np
 from pathlib import Path
@@ -21,15 +23,13 @@ from plotly.subplots import make_subplots
 EXTRACTOR_AVAILABLE = False
 VISUALIZER_AVAILABLE = False
 
+
+# Always use the advanced extractor
 try:
-    from simple_extractor import SimpleGFTADsDataExtractor as GFTADsDataExtractor
+    from data_extractor import GFTADsDataExtractor
     EXTRACTOR_AVAILABLE = True
-except ImportError as e:
-    try:
-        from data_extractor import GFTADsDataExtractor
-        EXTRACTOR_AVAILABLE = True
-    except ImportError:
-        pass  # Will show error in the UI later
+except ImportError:
+    EXTRACTOR_AVAILABLE = False
 
 try:
     from simple_visualizer import SimpleGFTADsVisualizer as GFTADsVisualizer
@@ -80,198 +80,169 @@ def load_data(file_path):
 def main():
     st.title("🎯 GF-TADs Data Analysis Dashboard")
     st.markdown("**Comprehensive analysis of Global Framework for the Progressive Control of Transboundary Animal Diseases documents**")
-    
-    # Sidebar
-    st.sidebar.title("📋 Navigation")
-    
-    # Option to extract new data or load existing
-    analysis_mode = st.sidebar.radio(
-        "Choose Analysis Mode:",
-        ["Extract New Data", "Load Existing Data", "Demo Mode"]
-    )
-    
-    if analysis_mode == "Extract New Data":
-        extract_new_data()
-    elif analysis_mode == "Load Existing Data":
-        load_existing_data()
-    else:
-        demo_mode()
 
+    # Tabs: Dashboard (first), Extract More Data (second)
+    tab_dashboard, tab_extract = st.tabs(["Dashboard", "Extract More Data"])
+
+    with tab_dashboard:
+        # --- Dashboard Tab ---
+        # Path to database (default)
+        base_path = r"c:\Users\user\EUFMD\Gftad"
+        db_path = str(Path(base_path) / "extracted_data" / "gftads_database.xlsx")
+        st.header("📊 Visualization Dashboard (Live from Database)")
+        if Path(db_path).exists():
+            try:
+                df = pd.read_excel(db_path)
+                st.success(f"Loaded {len(df)} records from database.")
+
+                # --- FILTERS ---
+
+                filter_col1, filter_col2, filter_col3 = st.columns(3)
+
+                # Year filter (from 'when' column, extract 4-digit years)
+                with filter_col1:
+                    years = set()
+                    df_when = df['when'].dropna().astype(str)
+                    for val in df_when:
+                        years.update([y for y in re.findall(r'\b(20\d{2}|19\d{2})\b', val)])
+                    years = sorted(years)
+                    selected_years = st.multiselect(
+                        "Filter by Year",
+                        options=years,
+                        default=[],
+                        help="Select one or more years to filter. Leave empty to show all."
+                    )
+
+                # Objectives filter (from 'objectives' column, which may be list or string)
+                with filter_col2:
+                    obj_set = set()
+                    for val in df['objectives'].dropna():
+                        if isinstance(val, list):
+                            obj_set.update([str(o).strip() for o in val if str(o).strip()])
+                        elif isinstance(val, str):
+                            if val.startswith('[') and val.endswith(']'):
+                                try:
+                                    import ast
+                                    parsed = ast.literal_eval(val)
+                                    obj_set.update([str(o).strip() for o in parsed if str(o).strip()])
+                                except Exception:
+                                    obj_set.add(val.strip())
+                            else:
+                                obj_set.add(val.strip())
+                    objectives = sorted(obj_set)
+                    selected_objectives = st.multiselect(
+                        "Filter by Objective",
+                        options=objectives,
+                        default=[],
+                        help="Select one or more objectives to filter. Leave empty to show all."
+                    )
+
+                # Where filter (from 'where' column, semicolon separated)
+                with filter_col3:
+                    where_set = set()
+                    for val in df['where'].dropna().astype(str):
+                        for w in val.split(';'):
+                            w = w.strip()
+                            if w:
+                                where_set.add(w)
+                    wheres = sorted(where_set)
+                    selected_wheres = st.multiselect(
+                        "Filter by Where",
+                        options=wheres,
+                        default=[],
+                        help="Select one or more locations to filter. Leave empty to show all."
+                    )
+
+                # --- APPLY FILTERS ---
+                df_filtered = df.copy()
+                # Filter by year (if any selected)
+                if selected_years and years:
+                    df_filtered = df_filtered[df_filtered['when'].astype(str).apply(lambda x: any(y in x for y in selected_years))]
+                # Filter by objectives
+                if selected_objectives and objectives:
+                    def obj_match(val):
+                        if isinstance(val, list):
+                            return any(o in selected_objectives for o in val)
+                        elif isinstance(val, str):
+                            # Try to parse as list
+                            if val.startswith('[') and val.endswith(']'):
+                                try:
+                                    import ast
+                                    parsed = ast.literal_eval(val)
+                                    return any(o in selected_objectives for o in parsed)
+                                except Exception:
+                                    return val in selected_objectives
+                            else:
+                                return val in selected_objectives
+                        return False
+                    df_filtered = df_filtered[df_filtered['objectives'].apply(obj_match)]
+                # Filter by where
+                if selected_wheres and wheres:
+                    df_filtered = df_filtered[df_filtered['where'].astype(str).apply(lambda x: any(w in [w_.strip() for w_ in x.split(';')] for w in selected_wheres))]
+
+                analyze_data(df_filtered)
+            except Exception as e:
+                st.error(f"❌ Could not load database: {e}")
+        else:
+            st.info("No database found yet. Extract data to create it.")
+
+    with tab_extract:
+        # --- Extract More Data Tab ---
+        extract_new_data()
 def extract_new_data():
     st.header("🔄 Extract New Data from PDFs")
-    
     st.markdown("""
     <div class="highlight">
     <strong>📁 Data Extraction Process</strong><br>
     This will process all PDF files in your GSC_Recommendations and GSC_Reports folders
-    and extract structured information including what, when, who, where, impact, and objectives.    </div>
+    and extract structured information including what, when, who, where, impact, and objectives.<br>
+    <strong>After extraction, the dashboard tab will show the latest data from your database.</strong>
+    </div>
     """, unsafe_allow_html=True)
-    
     # Path configuration
     base_path = st.text_input(
         "Base Path to GF-TADs Data:",
         value=r"c:\Users\user\EUFMD\Gftad",
         help="Path to the folder containing GSC_Recommendations and GSC_Reports"
     )
-    
     if st.button("🚀 Start Data Extraction", type="primary"):
         if not EXTRACTOR_AVAILABLE:
             st.error("❌ Data extractor module is not available. Please check the installation.")
             return
-            
         if not Path(base_path).exists():
             st.error("❌ Path does not exist. Please check the path.")
             return
-        
         # Check for required folders
         recommendations_path = Path(base_path) / "GSC_Recommendations"
         reports_path = Path(base_path) / "GSC_Reports"
-        
         if not recommendations_path.exists() or not reports_path.exists():
             st.error("❌ GSC_Recommendations or GSC_Reports folders not found in the specified path.")
             return
-        
-        # Start extraction
-        with st.spinner("🔍 Extracting data from PDFs... This may take a few minutes."):
+        # Find all PDF files in both folders
+        pdf_files = list(recommendations_path.glob("*.pdf")) + list(reports_path.glob("*.pdf"))
+        if not pdf_files:
+            st.error("❌ No PDF files found in the specified folders.")
+            return
+        # Start extraction and append to database
+        with st.spinner("🔍 Extracting and updating database... This may take a few minutes."):
             try:
-                extractor = GFTADsDataExtractor(base_path)
-                df = extractor.process_all_documents()
-                
-                if df.empty:
+                db_path = str(Path(base_path) / "extracted_data" / "gftads_database.xlsx")
+                extractor = GFTADsDataExtractor(base_path, db_path=db_path)
+                updated_df = extractor.process_and_update_database(pdf_files)
+                if updated_df.empty:
                     st.error("❌ No data could be extracted from the PDFs.")
                     return
-                
-                # Save data
-                output_file = extractor.save_extracted_data(df, 'excel')
-                
-                st.success(f"✅ Data extraction completed successfully!")
-                st.info(f"📄 Total activities extracted: {len(df)}")
-                st.info(f"💾 Data saved to: {output_file}")
-                  # Store in session state for immediate analysis
-                st.session_state['extracted_df'] = df
-                st.session_state['data_source'] = str(output_file)
-                
-                # Show preview
-                st.subheader("📊 Data Preview")
-                st.dataframe(df.head(10))
-                
-                # Guide user to next step with enhanced instructions
-                st.markdown(f"""
-                <div class="highlight">
-                <strong>🎉 Extraction Complete!</strong><br>
-                Your data has been successfully extracted and saved. To analyze and visualize this data:
-                <ol>
-                <li>📂 Click on <strong>"Load Existing Data"</strong> in the sidebar</li>
-                <li>📎 Browse and select the Excel file:<br>
-                    <code>{output_file.name}</code></li>
-                <li>📊 The analysis will start automatically once the file is uploaded!</li>
-                </ol>
-                <br>
-                <strong>💡 Tip:</strong> The file is saved in your <code>extracted_data</code> folder.
-                </div>
-                """, unsafe_allow_html=True)
-                    
+                st.success(f"✅ Data extraction and database update completed!")
+                st.info(f"📄 Total activities in database: {len(updated_df)}")
+                st.info(f"💾 Database file: {db_path}")
+                st.session_state['extracted_df'] = updated_df
+                st.session_state['data_source'] = db_path
+                st.subheader("📊 Database Preview (last 10 rows)")
+                st.dataframe(updated_df.tail(10))
             except Exception as e:
                 st.error(f"❌ Error during extraction: {str(e)}")
 
-def load_existing_data():
-    st.header("📂 Load Existing Data")
-    
-    st.markdown("""
-    <div class="highlight">
-    <strong>📊 Load Previously Extracted Data</strong><br>
-    Upload an Excel, CSV, or JSON file containing previously extracted GF-TADs data.
-    </div>
-    """, unsafe_allow_html=True)
-    
-    # File uploader
-    uploaded_file = st.file_uploader(
-        "Choose a data file",
-        type=['xlsx', 'csv', 'json'],
-        help="Upload Excel, CSV, or JSON file with extracted GF-TADs data"
-    )
-    
-    if uploaded_file is not None:
-        try:
-            # Load data based on file type
-            if uploaded_file.name.endswith('.xlsx'):
-                df = pd.read_excel(uploaded_file)
-            elif uploaded_file.name.endswith('.csv'):
-                df = pd.read_csv(uploaded_file)
-            elif uploaded_file.name.endswith('.json'):
-                df = pd.read_json(uploaded_file)
-            
-            st.success(f"✅ Data loaded successfully! ({len(df)} records)")
-            
-            # Store in session state
-            st.session_state['extracted_df'] = df
-            st.session_state['data_source'] = uploaded_file.name
-            
-            # Show data preview
-            st.subheader("📊 Data Preview")
-            st.dataframe(df.head(10))
-            
-            # Proceed to analysis
-            analyze_data(df)
-            
-        except Exception as e:
-            st.error(f"❌ Error loading data: {str(e)}")
 
-def demo_mode():
-    st.header("🎭 Demo Mode")
-    
-    st.markdown("""
-    <div class="highlight">
-    <strong>🎯 Demo Mode</strong><br>
-    This mode shows you what the analysis would look like with sample data.
-    To analyze your actual GF-TADs documents, use "Extract New Data" mode.
-    </div>
-    """, unsafe_allow_html=True)
-    
-    # Create sample data for demonstration
-    sample_data = create_sample_data()
-    
-    st.subheader("📊 Sample Data Structure")
-    st.dataframe(sample_data.head(10))
-    
-    if st.button("📈 View Demo Analysis"):
-        analyze_data(sample_data)
-
-def create_sample_data():
-    """Create sample data for demonstration"""
-    np.random.seed(42)
-    
-    sample_activities = [
-        "Develop surveillance protocols",
-        "Implement early warning systems",
-        "Strengthen veterinary services",
-        "Coordinate regional response",
-        "Enhance laboratory capacity",
-        "Monitor disease outbreaks",
-        "Establish partnerships",
-        "Improve information sharing"
-    ]
-    
-    sample_orgs = ["FAO", "OIE", "WHO", "GF-TADs", "Regional Commission", "Ministry of Agriculture"]
-    sample_locations = ["Africa", "Asia", "Europe", "Regional", "National", "Global"]
-    sample_objectives = ["capacity building", "surveillance", "preparedness", "coordination", "prevention"]
-    
-    n_samples = 100
-    
-    data = {
-        'what': np.random.choice(sample_activities, n_samples),
-        'when': np.random.choice(['2022', '2023', '2024', 'by 2025', 'annually', 'quarterly'], n_samples),
-        'who': np.random.choice(sample_orgs, n_samples),
-        'where': np.random.choice(sample_locations, n_samples),
-        'impact': np.random.choice(['improve response time', 'reduce disease spread', 'enhance coordination'], n_samples),
-        'objectives': [np.random.choice(sample_objectives, np.random.randint(1, 4)).tolist() for _ in range(n_samples)],
-        'meeting_number': np.random.choice(range(1, 15), n_samples),
-        'document_type': np.random.choice(['Recommendations', 'Reports'], n_samples),
-        'confidence_score': np.random.beta(2, 2, n_samples),  # Beta distribution for realistic confidence scores
-        'page_number': np.random.randint(1, 20, n_samples)
-    }
-    
-    return pd.DataFrame(data)
 
 def analyze_data(df):
     """Main analysis function"""

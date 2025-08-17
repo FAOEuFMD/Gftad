@@ -1,4 +1,4 @@
-# GF-TADs Data Analysis and Visualization
+__# GF-TADs Data Analysis and Visualization
 
 This project provides a comprehensive solution for extracting, analyzing, and visualizing data from GF-TADs (Global Framework for the Progressive Control of Transboundary Animal Diseases) documents.
 
@@ -61,10 +61,15 @@ python -m spacy download en_core_web_sm
 # Navigate to the project directory
 cd path/to/gftad/project
 
+# (Recommended) Create and activate a virtual environment (Windows):
+python -m venv .venv
+.venv\Scripts\activate
+
 # Install dependencies
+pip install --upgrade pip setuptools wheel
 pip install -r requirements.txt
 
-# Install spaCy model
+# Install spaCy model (if using spaCy features)
 python -m spacy download en_core_web_sm
 ```
 
