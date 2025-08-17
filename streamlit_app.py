@@ -61,6 +61,11 @@ st.markdown("""
         border-left: 4px solid #1f77b4;
         margin: 1rem 0;
     }
+    /* Make selected multiselect tags grey instead of red */
+    .stMultiSelect [data-baseweb="tag"] {
+        background-color: #e0e0e0 !important;
+        color: #333 !important;
+    }
 </style>
 """, unsafe_allow_html=True)
 
@@ -118,18 +123,29 @@ def main():
                     obj_set = set()
                     for val in df['objectives'].dropna():
                         if isinstance(val, list):
-                            obj_set.update([str(o).strip() for o in val if str(o).strip()])
+                            for o in val:
+                                for obj in str(o).split(','):
+                                    for obj2 in obj.split(';'):
+                                        obj_set.add(obj2.strip())
                         elif isinstance(val, str):
+                            # Try to parse as list
                             if val.startswith('[') and val.endswith(']'):
                                 try:
                                     import ast
                                     parsed = ast.literal_eval(val)
-                                    obj_set.update([str(o).strip() for o in parsed if str(o).strip()])
+                                    for o in parsed:
+                                        for obj in str(o).split(','):
+                                            for obj2 in obj.split(';'):
+                                                obj_set.add(obj2.strip())
                                 except Exception:
-                                    obj_set.add(val.strip())
+                                    for obj in val.split(','):
+                                        for obj2 in obj.split(';'):
+                                            obj_set.add(obj2.strip())
                             else:
-                                obj_set.add(val.strip())
-                    objectives = sorted(obj_set)
+                                for obj in val.split(','):
+                                    for obj2 in obj.split(';'):
+                                        obj_set.add(obj2.strip())
+                    objectives = sorted([o for o in obj_set if o])
                     selected_objectives = st.multiselect(
                         "Filter by Objective",
                         options=objectives,
@@ -137,14 +153,15 @@ def main():
                         help="Select one or more objectives to filter. Leave empty to show all."
                     )
 
-                # Where filter (from 'where' column, semicolon separated)
+                # Where filter (from 'where' column, split by semicolon and comma)
                 with filter_col3:
                     where_set = set()
                     for val in df['where'].dropna().astype(str):
                         for w in val.split(';'):
-                            w = w.strip()
-                            if w:
-                                where_set.add(w)
+                            for w2 in w.split(','):
+                                w2 = w2.strip()
+                                if w2:
+                                    where_set.add(w2)
                     wheres = sorted(where_set)
                     selected_wheres = st.multiselect(
                         "Filter by Where",
@@ -161,24 +178,43 @@ def main():
                 # Filter by objectives
                 if selected_objectives and objectives:
                     def obj_match(val):
+                        objs = set()
                         if isinstance(val, list):
-                            return any(o in selected_objectives for o in val)
+                            for o in val:
+                                for obj in str(o).split(','):
+                                    for obj2 in obj.split(';'):
+                                        objs.add(obj2.strip())
                         elif isinstance(val, str):
-                            # Try to parse as list
                             if val.startswith('[') and val.endswith(']'):
                                 try:
                                     import ast
                                     parsed = ast.literal_eval(val)
-                                    return any(o in selected_objectives for o in parsed)
+                                    for o in parsed:
+                                        for obj in str(o).split(','):
+                                            for obj2 in obj.split(';'):
+                                                objs.add(obj2.strip())
                                 except Exception:
-                                    return val in selected_objectives
+                                    for obj in val.split(','):
+                                        for obj2 in obj.split(';'):
+                                            objs.add(obj2.strip())
                             else:
-                                return val in selected_objectives
-                        return False
+                                for obj in val.split(','):
+                                    for obj2 in obj.split(';'):
+                                        objs.add(obj2.strip())
+                        objs = set([o for o in objs if o])
+                        return any(o in selected_objectives for o in objs)
                     df_filtered = df_filtered[df_filtered['objectives'].apply(obj_match)]
                 # Filter by where
                 if selected_wheres and wheres:
-                    df_filtered = df_filtered[df_filtered['where'].astype(str).apply(lambda x: any(w in [w_.strip() for w_ in x.split(';')] for w in selected_wheres))]
+                    def where_match(val):
+                        whs = set()
+                        for w in str(val).split(';'):
+                            for w2 in w.split(','):
+                                w2 = w2.strip()
+                                if w2:
+                                    whs.add(w2)
+                        return any(w in whs for w in selected_wheres)
+                    df_filtered = df_filtered[df_filtered['where'].apply(where_match)]
 
                 analyze_data(df_filtered)
             except Exception as e:
