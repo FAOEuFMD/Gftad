@@ -249,29 +249,50 @@ class GFTADsVisualizer:
     def create_activity_timeline(self):
         """Create timeline visualization of activities"""
         # Filter data with valid years
-        timeline_data = self.df[self.df['year'].notna()]
-        
+        timeline_data = self.df[self.df['year'].notna()].copy()
+        # Always create a color column that is a single value per row, prioritizing area_of_work, fallback to activity_category
+        def get_color(row):
+            area = str(row.get('area_of_work', '')).strip()
+            if area and area.lower() != 'nan':
+                # Split by comma, return list of valid values
+                vals = [v.strip() for v in area.split(',') if v.strip() and v.strip().lower() != 'nan']
+                if vals:
+                    return vals
+            # fallback to activity_category
+            cat = str(row.get('activity_category', '')).strip()
+            if cat and cat.lower() != 'nan':
+                return [cat]
+            return []
+
+        # Build a new DataFrame with one row per color value
+        timeline_data['color_col'] = timeline_data.apply(get_color, axis=1)
+        timeline_data = timeline_data.explode('color_col')
+        # Remove empty, nan, or NaN values
+        timeline_data = timeline_data[timeline_data['color_col'].notna()]
+        timeline_data = timeline_data[timeline_data['color_col'].astype(str).str.strip() != '']
+        timeline_data = timeline_data[timeline_data['color_col'].astype(str).str.lower() != 'nan']
+
         if timeline_data.empty:
             print("No temporal data available for timeline")
             return None
-        
+
         fig = px.scatter(
             timeline_data,
             x='year',
             y='meeting_number',
             size='confidence_score',
-            color='activity_category',
+            color='color_col',
             hover_data=['what', 'who', 'where'],
             title='Activity Timeline: When and What',
             template=self.plotly_theme
         )
-        
+
         fig.update_layout(
             xaxis_title="Year",
             yaxis_title="Meeting Number",
             height=600
         )
-        
+
         return fig
     
     def create_network_analysis(self):

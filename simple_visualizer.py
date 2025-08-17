@@ -54,14 +54,19 @@ class SimpleGFTADsVisualizer:
         self.plotly_theme = "plotly_white"
         
         # Color schemes
+        # Lighter, friendlier palette: light blue, light red-orange, and a pie palette
         self.colors = {
-            'primary': '#1f77b4',
-            'secondary': '#ff7f0e',
-            'success': '#2ca02c',
-            'warning': '#d62728',
-            'info': '#9467bd',
-            'light': '#8c564b',
-            'dark': '#e377c2'
+            'blue': '#2471A3',        # Darker blue
+            'red': '#E76F51',         # Darker red-orange
+            'light_blue': '#7FB3D5',  # Lighter but still visible blue
+            'light_red': '#F4A261',   # Lighter but more orange-red
+            'gray': '#E5E5E5',
+            'dark_gray': '#333333',
+            'pie_palette': [
+                '#2471A3', '#E76F51', '#F4A261', '#7FB3D5', '#F4A261',
+                '#A3D9A5', '#F4978E', '#B5B2C2', '#F6C28B', '#B8E0D2',
+                '#F9F871', '#B2A4FF', '#FFB5E8', '#B5EAD7', '#FFDAC1'
+            ]
         }
     
     def prepare_data(self):
@@ -133,105 +138,140 @@ class SimpleGFTADsVisualizer:
         fig = make_subplots(
             rows=2, cols=3,
             subplot_titles=[
-                'Activities by Work Area',
-                'Where (Location) Distribution',
-                'Activity Categories',
-                'Confidence Score Distribution',
                 'Organizations Involvement',
-                'Temporal Distribution'
+                'Location Distribution',
+                'Disease Distribution',
+                'Temporal Distribution',
+                'Activities Category',
+                ' '
             ],
             specs=[
-                [{"type": "bar"}, {"type": "pie"}, {"type": "bar"}],
-                [{"type": "histogram"}, {"type": "bar"}, {"type": "scatter"}]
+                [{"type": "bar"}, {"type": "pie"}, None],
+                [{"type": "bar"}, {"type": "scatter"}, {"type": "bar"}]
             ]
         )
 
 
-        # 1. Activities by Work Area (area_of_work) - Top left
-        if 'area_of_work' in self.df.columns:
-            area_expanded = self.df['area_of_work'].dropna().astype(str).str.split(';').explode().str.strip()
-            area_counts = area_expanded[area_expanded != ''].value_counts()
+        # 1. Organizations Involvement (lighter blue)
+        if 'who' in self.df.columns:
+            org_expanded = self.df['who'].dropna().astype(str)
+            orgs = []
+            for val in org_expanded:
+                for org in val.split(','):
+                    org = org.strip()
+                    if org:
+                        orgs.append(org)
+            org_counts = pd.Series(orgs).value_counts().head(15)
             fig.add_trace(
                 go.Bar(
-                    x=area_counts.index,
-                    y=area_counts.values,
-                    name='Activities by Work Area',
-                    marker_color=self.colors['primary']
+                    x=org_counts.values,
+                    y=org_counts.index,
+                    orientation='h',
+                    name='Organizations Involvement',
+                    marker_color=self.colors['blue']
                 ),
                 row=1, col=1
             )
+            fig.update_yaxes(autorange='reversed', row=1, col=1)
         else:
             fig.add_trace(
-                go.Bar(x=[], y=[], name='Activities by Work Area'),
+                go.Bar(x=[], y=[], name='Organizations Involvement', marker_color=self.colors['blue']),
                 row=1, col=1
             )
 
-        # 2. Where (Location) Distribution Pie Chart - Top center
+        # 2. Where (Location) Distribution Pie Chart - Top center (distinct palette)
         if 'where' in self.df.columns:
-            where_expanded = self.df['where'].dropna().astype(str).str.split(';').explode().str.strip()
-            where_counts = where_expanded[where_expanded != ''].value_counts().head(15)
+            where_expanded = self.df['where'].dropna().astype(str)
+            locations = []
+            for val in where_expanded:
+                for part in val.split(';'):
+                    for loc in part.split(','):
+                        loc = loc.strip()
+                        if loc:
+                            locations.append(loc)
+            where_counts = pd.Series(locations).value_counts().head(15)
+            pie_colors = self.colors['pie_palette'][:len(where_counts)]
             fig.add_trace(
                 go.Pie(
                     labels=where_counts.index,
                     values=where_counts.values,
                     name="Where (Location)",
-                    marker_colors=px.colors.qualitative.Pastel
+                    marker_colors=pie_colors,
+                    showlegend=True
                 ),
                 row=1, col=2
             )
+            fig.update_layout(
+                legend=dict(
+                    orientation="h",
+                    yanchor="bottom",
+                    y=-0.15,
+                    xanchor="center",
+                    x=0.5
+                )
+            )
         else:
             fig.add_trace(
-                go.Pie(labels=[], values=[], name="Where (Location)"),
+                go.Pie(labels=[], values=[], name="Where (Location)", marker_colors=self.colors['pie_palette']),
                 row=1, col=2
             )
 
-        # 3. Activity Categories - Top right
-        categories = self.df['activity_category'].value_counts()
-        fig.add_trace(
-            go.Bar(
-                x=categories.index,
-                y=categories.values,
-                name='Activity Categories',
-                marker_color=self.colors['success']
-            ),
-            row=1, col=3
-        )
-
-        # 4. Confidence Score Distribution - Bottom left
-        fig.add_trace(
-            go.Histogram(
-                x=self.df['confidence_score'],
-                nbinsx=20,
-                name='Confidence Scores',
-                marker_color=self.colors['info']
-            ),
-            row=2, col=1
-        )
-
-        # 5. Organizations (top 10) - Bottom center
-        all_orgs = []
-        for orgs in self.df['who'].dropna():
-            all_orgs.extend([org.strip() for org in str(orgs).split(';') if org.strip()])
-        org_counts = Counter(all_orgs).most_common(10)
-        if org_counts:
-            orgs, counts = zip(*org_counts)
+        # 3. Activities by Work Area (even lighter blue) - now in second row, third column
+        if 'area_of_work' in self.df.columns:
+            area_expanded = self.df['area_of_work'].dropna().astype(str)
+            areas = []
+            for val in area_expanded:
+                for area in val.split(','):
+                    area = area.strip()
+                    if area:
+                        areas.append(area)
+            area_counts = pd.Series(areas).value_counts().head(15)
+            area_counts = area_counts.sort_values(ascending=False)
             fig.add_trace(
                 go.Bar(
-                    x=counts,
-                    y=orgs,
+                    x=area_counts.values,
+                    y=area_counts.index,
                     orientation='h',
-                    name='Top Organizations',
-                    marker_color=self.colors['warning']
+                    name='Activities Category',
+                    marker_color=self.colors['light_blue']
                 ),
-                row=2, col=2
+                row=2, col=3
             )
+            fig.update_yaxes(autorange='reversed', row=2, col=3)
         else:
             fig.add_trace(
-                go.Bar(x=[], y=[], name='Top Organizations'),
-                row=2, col=2
+                go.Bar(x=[], y=[], name='Activities Category', marker_color=self.colors['light_blue']),
+                row=2, col=3
             )
 
-        # 6. Temporal Distribution (if year data available) - Bottom right
+        # 4. Disease Distribution (light red-orange)
+        if 'disease' in self.df.columns:
+            disease_expanded = self.df['disease'].dropna().astype(str)
+            diseases = []
+            for val in disease_expanded:
+                for disease in val.split(','):
+                    disease = disease.strip()
+                    if disease:
+                        diseases.append(disease)
+            disease_counts = pd.Series(diseases).value_counts().head(15)
+            fig.add_trace(
+                go.Bar(
+                    x=disease_counts.values,
+                    y=disease_counts.index,
+                    orientation='h',
+                    marker_color=self.colors['red'],
+                    name='Disease Distribution'
+                ),
+                row=2, col=1
+            )
+            fig.update_yaxes(autorange='reversed', row=2, col=1)
+        else:
+            fig.add_trace(
+                go.Bar(x=[], y=[], name='Disease Distribution', marker_color=self.colors['red']),
+                row=2, col=1
+            )
+
+        # 5. Temporal Distribution (lighter blue line, very light orange markers)
         year_data = self.df['year'].dropna()
         if not year_data.empty:
             year_counts = year_data.value_counts().sort_index()
@@ -239,30 +279,34 @@ class SimpleGFTADsVisualizer:
                 go.Scatter(
                     x=year_counts.index,
                     y=year_counts.values,
-                    mode='markers+lines',
+                    mode='lines+markers',
                     name='Activities by Year',
-                    marker=dict(size=10, color=self.colors['dark'])
+                    line=dict(color=self.colors['blue'], width=3),
+                    marker=dict(size=10, color=self.colors['light_red'])
                 ),
-                row=2, col=3
+                row=2, col=2
             )
         else:
             fig.add_trace(
-                go.Scatter(x=[], y=[], name='Activities by Year'),
-                row=2, col=3
+                go.Scatter(x=[], y=[], name='Activities by Year', line=dict(color=self.colors['blue']), marker=dict(color=self.colors['light_red'])),
+                row=2, col=2
             )
 
-        # Add summary metrics at the top (including Number of Global Steering Committee meetings)
-        # This is for Streamlit, not Plotly, so add a helper method for Streamlit to call
-        # Fix: drop NaN and empty, convert to string, then count unique meeting numbers
-        meeting_numbers = self.df['meeting_number'].dropna().astype(str)
-        meeting_numbers = meeting_numbers[meeting_numbers != '' ]
-        num_unique_meetings = meeting_numbers.nunique()
+        # Add summary metrics at the top (including Meetings held)
+        # Count all activities where the word 'meeting' or 'meetings' appears in the 'what' column (case-insensitive)
+        if 'what' in self.df.columns:
+            meeting_mask = self.df['what'].astype(str).str.contains(r'\bmeetings?\b', case=False, na=False)
+            num_meetings_held = int(meeting_mask.sum())
+        else:
+            num_meetings_held = 0
         self.overview_metrics = {
             'Total Activities': len(self.df),
-            'Number of Global Steering Committee meetings': num_unique_meetings,
+            'Meetings held': num_meetings_held,
             'Avg Confidence': round(self.df['confidence_score'].mean(), 2),
-            'Document Types': self.df['document_type'].nunique()
+            'Documents Loaded': self.df['document_type'].nunique()
         }
+        print(self.df['what'].unique())
+        print('Meetings held:', num_meetings_held)
 
         # Update layout
         fig.update_layout(
@@ -277,8 +321,10 @@ class SimpleGFTADsVisualizer:
     
     def create_activity_timeline(self):
         """Create timeline visualization: year (x), number of activities (y), colored by area_of_work"""
-        # Filter data with valid years
+        # Filter data with valid years (exclude NaN)
         timeline_data = self.df[self.df['year'].notna()].copy()
+        # Remove any rows where 'year' is still NaN (shouldn't be, but extra safety)
+        timeline_data = timeline_data[~timeline_data['year'].isna()]
         if timeline_data.empty:
             print("No temporal data available for timeline")
             return None
@@ -291,6 +337,9 @@ class SimpleGFTADsVisualizer:
 
         # Group by year and area_of_work, count activities
         grouped = timeline_data.groupby(['year', 'area_of_work']).size().reset_index(name='activity_count')
+
+        # Remove any rows where year is NaN (shouldn't be needed, but double check)
+        grouped = grouped[~grouped['year'].isna()]
 
         fig = px.bar(
             grouped,
@@ -366,7 +415,7 @@ class SimpleGFTADsVisualizer:
                 x=conf_by_doctype.index,
                 y=conf_by_doctype.values,
                 name='Avg Confidence by Doc Type',
-                marker_color=self.colors['primary']
+                marker_color=self.colors['blue']
             ),
             row=1, col=1
         )
@@ -379,7 +428,7 @@ class SimpleGFTADsVisualizer:
                 y=conf_by_meeting.values,
                 mode='lines+markers',
                 name='Avg Confidence by Meeting',
-                line=dict(color=self.colors['secondary'])
+                line=dict(color=self.colors['red'])
             ),
             row=1, col=2
         )
@@ -392,7 +441,7 @@ class SimpleGFTADsVisualizer:
                 x=conf_by_category.values,
                 orientation='h',
                 name='Avg Confidence by Category',
-                marker_color=self.colors['success']
+                marker_color=self.colors['light_blue']
             ),
             row=2, col=1
         )
@@ -402,7 +451,7 @@ class SimpleGFTADsVisualizer:
             go.Box(
                 y=self.df['confidence_score'],
                 name='Confidence Distribution',
-                marker_color=self.colors['info']
+                marker_color=self.colors['light_blue']
             ),
             row=2, col=2
         )

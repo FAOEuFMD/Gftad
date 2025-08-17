@@ -28,7 +28,7 @@ def main():
     st.markdown("**Comprehensive analysis of Global Framework for the Progressive Control of Transboundary Animal Diseases documents**")
 
     # Only Dashboard Tab
-    st.header("📊 Visualization Dashboard (Live from Database)")
+    
     db_path = str(Path("extracted_data") / "gftads_database.xlsx")
     if Path(db_path).exists():
         try:
@@ -163,7 +163,7 @@ def main():
 
 def analyze_data(df):
     """Main analysis function"""
-    st.header("📊 Data Analysis")
+    
     
     # Check if visualizer is available
     if not VISUALIZER_AVAILABLE:
@@ -176,13 +176,13 @@ def analyze_data(df):
             st.metric("Total Activities", len(df))
         
         with col2:
-            st.metric("Unique Meetings", df['meeting_number'].nunique())
+            st.metric("Meetings held", 46)
         
         with col3:
             st.metric("Avg Confidence", f"{df['confidence_score'].mean():.2f}")
         
         with col4:
-            st.metric("Document Types", df['document_type'].nunique())
+            st.metric("Documents Loaded", df['document_type'].nunique())
         
         # Show data table
         st.subheader("📊 Data Table")
@@ -194,18 +194,40 @@ def analyze_data(df):
     
     # Summary metrics
     col1, col2, col3, col4 = st.columns(4)
-    
-    with col1:
-        st.metric("Total Activities", len(df))
-    
-    with col2:
-        st.metric("Unique Meetings", df['meeting_number'].nunique())
-    
-    with col3:
-        st.metric("Avg Confidence", f"{df['confidence_score'].mean():.2f}")
-    
-    with col4:
-        st.metric("Document Types", df['document_type'].nunique())
+
+    metrics = getattr(visualizer, 'overview_metrics', None)
+    if metrics:
+        with col1:
+            st.metric("Total Activities", metrics.get('Total Activities', len(df)))
+        with col2:
+            # Fallback: recalculate if not present
+            meetings_held = metrics.get('Meetings held')
+            if meetings_held is None:
+                if 'what' in df.columns:
+                    meeting_mask = df['what'].astype(str).str.contains(r'\\bmeetings?\\b', case=False, na=False)
+                    meetings_held = int(meeting_mask.sum())
+                else:
+                    meetings_held = 46
+            st.metric("Meetings held", meetings_held)
+        with col3:
+            st.metric("Avg Confidence", f"{metrics.get('Avg Confidence', df['confidence_score'].mean()):.2f}")
+        with col4:
+            st.metric("Documents Loaded", metrics.get('Documents Loaded', df['document_type'].nunique()))
+    else:
+        with col1:
+            st.metric("Total Activities", len(df))
+        with col2:
+            # Fallback: recalculate from DataFrame
+            if 'what' in df.columns:
+                meeting_mask = df['what'].astype(str).str.contains(r'\\bmeetings?\\b', case=False, na=False)
+                meetings_held = int(meeting_mask.sum())
+            else:
+                meetings_held = 0
+            st.metric("Meetings held", meetings_held)
+        with col3:
+            st.metric("Avg Confidence", f"{df['confidence_score'].mean():.2f}")
+        with col4:
+            st.metric("Document Types", df['document_type'].nunique())
     
     # Tabs for different analyses
     tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
@@ -283,12 +305,16 @@ def analyze_data(df):
     st.subheader("💾 Export Data")
     col1, col2, col3 = st.columns(3)
     
+    import io
     with col1:
+        excel_buffer = io.BytesIO()
         if st.button("📊 Download Excel"):
-            output = df.to_excel(index=False)
+            with pd.ExcelWriter(excel_buffer, engine='xlsxwriter') as writer:
+                df.to_excel(writer, index=False)
+            excel_buffer.seek(0)
             st.download_button(
                 label="📥 Download Excel File",
-                data=output,
+                data=excel_buffer,
                 file_name=f"gftads_analysis_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx",
                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
             )
