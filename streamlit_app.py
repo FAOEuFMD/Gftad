@@ -29,8 +29,7 @@ def main():
 
     # Only Dashboard Tab
     st.header("📊 Visualization Dashboard (Live from Database)")
-    base_path = r"c:\Users\user\EUFMD\Gftad"
-    db_path = str(Path(base_path) / "extracted_data" / "gftads_database.xlsx")
+    db_path = str(Path("extracted_data") / "gftads_database.xlsx")
     if Path(db_path).exists():
         try:
             df = pd.read_excel(db_path)
